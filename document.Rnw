@@ -1,0 +1,285 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage[table]{xcolor}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{gensymb}
+\usepackage[authoryear, round]{natbib}
+\usepackage[bottom]{footmisc}
+\usepackage{appendix}
+\usepackage{enumitem}
+\setlist{noitemsep}
+\usepackage[euler]{textgreek}
+\usepackage{amsmath, bm}
+\usepackage{wrapfig}
+\usepackage{booktabs}
+\usepackage{siunitx}
+
+\sisetup{
+  round-mode = figures,
+  round-precision = 3,
+  group-separator = \text{~}
+}
+
+% Highlight cells in a table
+\newcommand{\highlight}{\cellcolor{blue!25}}
+ 
+\geometry{margin=2.5cm}
+
+\frenchspacing
+ 
+\pagestyle{fancy}
+\fancyhf{}
+\chead{Zacharie \textsc{Legault}}
+\cfoot{\thepage}
+
+<<setup, include=FALSE, cache=FALSE>>=
+# Knitr options
+library(knitr)
+
+# Numeric and scientific notation
+num <- function(x,round_precision=NULL)
+{
+  if (is.null(round_precision)) {
+    return(sprintf("\\num{%s}", x))
+  } else {
+    return(sprintf("\\num[round-precision=%s]{%s}",round_precision, x))
+  }
+}
+
+sci<- function(x,round_precision=NULL){
+  if (is.null(round_precision)) {
+    return(sprintf("\\num[scientific-notation = true]{%s}", x))
+  } else {
+    return(sprintf("\\num[round-precision=%s,scientific-notation = true]{%s}",round_precision, x))
+  }
+}
+
+# Set random seed
+set.seed(42)
+
+@
+
+\title{
+  Diabetes Prediction in the Pima Indian Population \\
+  \large MATH-493 Applied Biostatistics}
+\author{Zacharie \textsc{Legault}}
+\date{May 28, 2019}
+
+\begin{document}
+
+% Read script.R
+<<echo=FALSE, cache=FALSE>>=
+read_chunk("./script.R")
+@
+
+% Load data
+<<load_data, echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE>>=
+@
+
+\maketitle
+
+\section{Introduction} \label{Introduction}
+The task of classification is central to the modern practice of statistics. Given a set of explanatory variables, we want to model the data such that we can both gain new insights into the underlying mechanisms and make useful predictions given previously unseen data.
+
+\subsection{Dataset Presentation} \label{Dataset Presentation}
+The dataset used in this study is the well known Pima Indians Diabetes Dataset, which is often used as an introduction to statistical and machine learning classification methods. This data was originally presented by \citet{smith1988using} to investigate the use of neural networks for this task \footnote{For the current study, data was obtained as a CSV file through Kaggle \citep{uci_2016}.}. The dataset consists of 8 explanatory variables and the diagnosis for \Sexpr{dim(diabetes.data)[1]} patients from the Pima Indian population.  This group is known for a high prevalence of diabetes \citep{bennett1971diabetes} and as such has been followed for many years. The observed variables are the following:
+\begin{itemize}
+  \item Number of pregnancies
+  \item Plasma glucose concentration 2 hours after a glucose tolerance test (mg/dL)
+  \item Diastolic blood pressure (mmHg)
+  \item Triceps skin fold thickness (mm)
+  \item Insulin concentration  2 hours after a glucose tolerance test ({\textmugreek}U/mL)
+  \item Body mass index (BMI; kg/m\textsuperscript{2})
+  \item Diabetes pedigree function (DPF): this indicator was developped by \citeauthor{smith1988using} in order to give a general idea of the history of diabetes in the patient's family \footnote{Note that at the time of publication of the original paper, the function had not been validated and still does not seem to have been.}. The forumla is presented in \ref{Diabetes Pedigree Function}.
+  \item Age (years)
+\end{itemize}
+
+The authors defined a positive diabetes diagnosis as a plasma glucose concentration of 200 mg/dL two hours after ingesting 75 g of a carbohydrate solution. Only the subjects where the diagnosis was made between one and five years after the initial examination were kept in the dataset, and labeled as a positive outcome. If diabetes still had not been diagnosed after five years, the subjects were labeled as a negative outcome. Out of the \Sexpr{dim(diabetes.data)[1]} subjects, \Sexpr{sum(diabetes.data$Outcome == 1)} were given a positive diagnosis and \Sexpr{sum(diabetes.data$Outcome == 0)} were given a negative diagnosis. All patients were female, and at least 21 years old.
+
+\subsubsection{Data Preprocessing: Incomplete Data and Standardization} \label{Data Preprocessing: Incomplete Data and Standardization}
+One important aspect of this dataset is that it is not complete, as some entries are impossible. There are respectively \Sexpr{sum(is.na(diabetes.data$BMI))}, \Sexpr{sum(is.na(diabetes.data$Glucose))}, \Sexpr{sum(is.na(diabetes.data$SkinThickness))}, \Sexpr{sum(is.na(diabetes.data$Insulin))} and \Sexpr{sum(is.na(diabetes.data$BloodPressure))} subjects where the recorded BMI, blood glucose concentration, triceps skin fold thickness, insulin concentration and blood pressure is 0, which is obviously wrong. The histograms of the raw data are presented in Figure \ref{fig:raw_data_histograms}. Subjects where 2 or more of these variables were missing are removed from the dataset, which leaves \Sexpr{dim(max.1.missing.diabetes.data)[1]} subjects (\Sexpr{sum(max.1.missing.diabetes.data$Outcome == 1)} of whom with a positive diagnosis and \Sexpr{sum(max.1.missing.diabetes.data$Outcome == 0)} with a negative diagnosis). However, \Sexpr{num(apply(max.1.missing.diabetes.data,2,pMiss)["Insulin"], 3)}\% of the subjects still have missing data on insulin concentration, whereas the proportion is less than 1\% for the other variables. Any imputation technique to fill in the missing values for insulin concentration would introduce significant bias in the analysis when such a high proportion the data is absent. As such, the variable is removed altogether from the dataset. Mean substitution is performed to impute the missing items in BMI, blood glucose concentration, triceps skin fold thickness, and blood pressure. The histograms of the processed data are presented in Figure \ref{fig:clean_data_histograms}. Finally, in order to limit distortions due to the different scales of the features, each of them is stardardized (by substracting the mean and dividing by the standard deviation) such that they all have a mean of 0 and a standard deviation of 1. From now on, this preprocessed dataset will be referred to simply as \emph{the dataset}.
+
+<<raw_data_histograms, fig.align='center', fig.pos='H', fig.width=10, fig.height=5, fig=TRUE, fig.cap="Histograms of raw explanatory variables, with missing data", echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE>>=
+@
+
+<<clean_data_histograms, fig.align='center', fig.pos='H', fig.width=10, fig.height=5, fig=TRUE, fig.cap="Histograms of selected explanatory variables, with imputed data", echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE>>=
+@
+
+\subsubsection{Exploratory Data Analysis} \label{Exploratory Data Analysis}
+\begin{wrapfigure}{R}{0.5\textwidth}
+\vspace{-50pt}
+<<correlation_plot, echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE, results="asis">>=
+@
+\vspace{-50pt}
+\caption{Correlation plot of the dataset. The strength of the correlation between each pair of variable is color coded with the scale on the right.}
+\label{fig:correlation_plot}
+\end{wrapfigure}
+As a first step to explore the dataset, a scatter matrix (Figure \ref{fig:scatter_matrix}) and a correlation plot (Figure \ref{fig:correlation_plot}) are prepared to vizualise any clear relationships between pairs of variables. In general there does not seem to be any clear relationship between any of them. There is however a moderate correlation berween BMI and skin thickness ($r \approx$ \Sexpr{num(cor(scaled.diabetes.data$BMI, scaled.diabetes.data$SkinThickness), 3)}), and age and the number of pregnancies of the subjects ($r \approx$ \Sexpr{num(cor(scaled.diabetes.data$Age, scaled.diabetes.data$Pregnancies), 3)}). In both case, these are relationships we can expect. Since no pairs of variables has a disproportionate correlation, none of them have to be removed in order to avoid unwanted multicollinearity.
+
+<<scatter_matrix, fig.align='center', fig.pos='H', fig.width=11, fig.height=11, fig=TRUE, fig.cap="Scatter matrix of the dataset", echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE>>=
+@
+
+\subsection{Logistic Regression} \label{Logistic Regression}
+
+Logistic regression is one of the most common methods for binary classification given a set of predictors. It is an instance of a generalized linear model (GLM) with the \textit{logit} link function. The model will take as input the explatanory variables $x_k$ and give a prediction $p$ that the outcome is positive (i.e. 1), with parameters $\beta_k$. The logit transformation allows us to constrain the value of $p$ to the interval $[0,1]$.
+\begin{equation}
+  \text{logit}(p(\bm{x}; \bm{\beta})) = \ln\left(\frac{p(\bm{x}; \bm{\beta})}{1-p(\bm{x}; \bm{\beta})}\right) = \beta_0 + \beta_1 x_1 + \cdots + \beta_m x_m = \bm{\beta}^\top\bm{x}
+  \label{eqn:logit transform}
+\end{equation}
+\begin{equation}
+  p(\bm{x}; \bm{\beta}) = \frac{\exp(\bm{\beta}^\top\bm{x})}{1 + \exp(\bm{\beta}^\top\bm{x})}
+  \label{eqn:logistic regression model}
+\end{equation}
+The parameter $\beta_k$ represents the log-odds of feature $x_k$, telling us how much the logarithm of the odds of a positive outcome (i.e. the logit transform) increases when predictor $x_k$ increases by 1. The odds are obtained by taking the exponential of these parameters.
+
+Fitting is generaly done by maximum likelihood estimation. The likelihood of the model is given by
+\begin{equation}
+  \ell(\bm{x}^{(1)}, \ldots, \bm{x}^{(n)}; \bm{\beta}) = \prod_{i=1}^n p(\bm{x}^{(i)})^{y^{(i)}}(1-p(\bm{x}^{(i)}))^{1-y^{(i)}}
+  \label{eqn:likelihood}
+\end{equation}
+where $y^{(i)}$ is the outcome of subject $i$. Maximizing the likelihood is equivalent to maximizing the log-likelihood of the model.
+\begin{align}
+\begin{split}
+  \mathcal{L}(\bm{x}^{(1)}, \ldots, \bm{x}^{(n)}; \bm{\beta}) &= \log(\ell(\bm{x}^{(1)}, \ldots, \bm{x}^{(n)}; \bm{\beta})) \\
+  &= \sum_{i=1}^n \left[ y^{(i)}\log(p(\bm{x}^{(i)})) + (1-y^{(i)})\log(1-p(\bm{x}^{(i)})) \right]
+  \label{eqn:log-likelihood}
+\end{split}
+\end{align}
+Because the derivative of Equation \ref{eqn:log-likelihood} is non-linear for logistic regression, its minimization is generally done numerically by iteratively re-weighted least-squares (IRLS).
+
+One major advantage compared to other classification methods is that a logistic regression model is easily interpretable and linear in the paramters, each parameter $\beta_k$ in the linear combination telling us the log-odds of each predictor.
+
+\paragraph{$k$-fold Cross-Validation.} A commonly used technique in statistics and machine learning to assess the performance of a given model on new data is $k$-fold cross-validation. The dataset is partitioned into $k$ random subsets -- or folds -- assumed to be representative of the whole dataset, and $k$ models are fitted, each of them with one of the subsets held out. The models are then evaluated on the subset they have not yet seen. A drop in performance on new data would indicate that the model is overfitting its training data.
+
+\section{Results} \label{Results}
+<<cross_validation, echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE>>=
+@
+<<logistic_regression, echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE>>=
+@
+
+A simple model is first fitted using the whole dataset, with all variables combined without any interactions: pregnancies, glucose concentration, blood pressure, skin thickness, BMI, DPF, and age are all assigned a single coefficient, with an additionnal intercept parameter.
+
+The resulting model is then used as baseline for a stepwise selection phase. The \texttt{stepAIC} from the \texttt{MASS} package is used, which utilizes the Akaike Information Criterion (AIC) to find the best model given a baseline model and a parameter scope. A scope of all second degree interactions (i.e. squaring any single variable or pairwise multiplicative interaction between variables) is provided to the function. The procedure drops blood pressure and skin thickness as predictors, and introduces cross-interactions between glucose concentration and DPF, and between pregnancies and age. Since the models are not nested, we cannot do a likelihhod ratio test, but we can see that the new model reduces the deviance from \Sexpr{num(logistic.regression$baseline$deviance, 3)} to \Sexpr{num(logistic.regression$step$deviance, 3)} (bothe with a null deviance of \Sexpr{num(logistic.regression$step$null.deviance, 3)}). The selected model also increases McFadden's pseudo-$R^2$ from \Sexpr{num(pscl::pR2(logistic.regression$baseline)["McFadden"], 3)} to \Sexpr{num(pscl::pR2(logistic.regression$step)["McFadden"], 3)} which indicates a better fit \footnote{McFadden's pseudo-$R^2$ is given by $R_\text{McFadden}^2 = 1 - \mathcal{L}/\mathcal{L}_0$ where $\mathcal{L}$ and $\mathcal{L}_0$ are respectively the log-likelihood of the fitted and null models (i.e. only an intercept term).}. Because of the improved fit of the stepwise-selected model, this is the one that is chosen to go forward.
+
+The coefficient estimates and their standard error, 95\% confidence interval and p-value for the selected model are presented in Table \ref{tab:logistic coefficients}, and odds ratios are in Figure \ref{fig:logistic_regression_forestplot} as a forest plot. In all the significant predictors, blood glucose concentration is by far the most important one, with the odds increased by \Sexpr{num(exp(coef(logistic.regression$step)["Glucose"]), 3)} times for every increase of one standard deviation (\Sexpr{num(sd(clean.diabetes.data$Glucose), 3)} mg/dL). The number of pregnancies, BMI and DPF follow, all with a similar risk increase (odds ratios of \Sexpr{num(exp(coef(logistic.regression$step)["Pregnancies"]), 3)}, \Sexpr{num(exp(coef(logistic.regression$step)["BMI"]), 3)}, and \Sexpr{num(exp(coef(logistic.regression$step)["DiabetesPedigreeFunction"]), 3)} respectively). There is also a small but significant risk reduction when considering the cross-interaction between glucose concentration and DPF (\Sexpr{num(exp(coef(logistic.regression$step)["Glucose:DiabetesPedigreeFunction"]), 3)}). This is surprising given that each factor individually increases the probability of developping diabetes, but together they decrease it.
+
+\begin{table}[H]
+\centering
+\caption{Coefficients of the logistic regression model. The p-values below the 5\% significance level are highlighted in blue.}
+\label{tab:logistic coefficients}
+\begin{tabular}{lcccc}
+\toprule
+\multicolumn{1}{c}{Coefficient} & Estimate                 & Standard Error         & Confidence interval (95\%) & p-value                                  \\
+\midrule
+$\beta_0$                       & \Sexpr{num(get_estimate(1), 3)}  & \Sexpr{num(get_std_err(1), 3)} & \Sexpr{num(get_conf_int(1,1), 3)}/\Sexpr{num(get_conf_int(1,2), 3)} & \highlight\Sexpr{sci(get_p_value(1), 3)} \\
+$\beta_\text{pregnancies}$      & \Sexpr{num(get_estimate(2), 3)}  & \Sexpr{num(get_std_err(2), 3)} & \Sexpr{num(get_conf_int(2,1), 3)}/\Sexpr{num(get_conf_int(2,2), 3)} & \highlight\Sexpr{sci(get_p_value(2), 3)} \\
+$\beta_\text{glucose}$          & \Sexpr{num(get_estimate(3), 3)}  & \Sexpr{num(get_std_err(3), 3)} & \Sexpr{num(get_conf_int(3,1), 3)}/\Sexpr{num(get_conf_int(3,2), 3)} & \highlight\Sexpr{sci(get_p_value(3), 3)} \\
+$\beta_\text{BMI}$              & \Sexpr{num(get_estimate(4), 3)}  & \Sexpr{num(get_std_err(4), 3)} & \Sexpr{num(get_conf_int(4,1), 3)}/\Sexpr{num(get_conf_int(4,2), 3)} & \highlight\Sexpr{sci(get_p_value(4), 3)} \\
+$\beta_\text{DPF}$              & \Sexpr{num(get_estimate(5), 3)}  & \Sexpr{num(get_std_err(5), 3)} & \Sexpr{num(get_conf_int(5,1), 3)}/\Sexpr{num(get_conf_int(5,2), 3)} & \highlight\Sexpr{sci(get_p_value(5), 3)} \\
+$\beta_\text{age}$              & \Sexpr{num(get_estimate(6), 3)}  & \Sexpr{num(get_std_err(6), 3)} & \Sexpr{num(get_conf_int(6,1), 3)}/\Sexpr{num(get_conf_int(6,2), 3)} &           \Sexpr{num(get_p_value(6), 3)} \\
+$\beta_\text{glucose-DPF}$      & \Sexpr{num(get_estimate(7), 3)}  & \Sexpr{num(get_std_err(7), 3)} & \Sexpr{num(get_conf_int(7,1), 3)}/\Sexpr{num(get_conf_int(7,2), 3)} & \highlight\Sexpr{sci(get_p_value(7), 3)} \\
+$\beta_\text{pregnancies-age}$  & \Sexpr{num(get_estimate(8), 3)}  & \Sexpr{num(get_std_err(8), 3)} & \Sexpr{num(get_conf_int(8,1), 3)}/\Sexpr{num(get_conf_int(8,2), 3)} &           \Sexpr{num(get_p_value(8), 3)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+<<logistic_regression_forestplot, fig.align='center', fig.pos='H', fig.height=3, fig=TRUE, fig.cap="Forest plot if the odds ratios", echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE>>=
+@
+
+To check for any multicolinearity between predictors, their variance inflation factor (VIF) are calculated (see Table \ref{tab:vif}). As expected, the highest values are those concerning age and the number of pregnancies. As mentioned previously, there is a noticeable correlation between those two variables, so a higher VIF is normal. All other VIF values are small and indicate little multicolinearity between the selected features.
+
+\begin{table}[H]
+\centering
+\caption{Variance inflation factors of the predictors}
+\label{tab:vif}
+\begin{tabular}{lc}
+\toprule
+\multicolumn{1}{c}{Predictor} & Variance inflation factor \\
+\midrule
+Pregnancies & \Sexpr{num(car::vif(logistic.regression$step)["Pregnancies"], 3)} \\
+Glucose concentration & \Sexpr{num(car::vif(logistic.regression$step)["Glucose"], 3)} \\
+BMI & \Sexpr{num(car::vif(logistic.regression$step)["BMI"], 3)} \\
+DPF & \Sexpr{num(car::vif(logistic.regression$step)["DiabetesPedigreeFunction"], 3)} \\
+Age & \Sexpr{num(car::vif(logistic.regression$step)["Age"], 3)} \\
+Glucose-DPF & \Sexpr{num(car::vif(logistic.regression$step)["Glucose:DiabetesPedigreeFunction"], 3)} \\
+Pregnancies-Age & \Sexpr{num(car::vif(logistic.regression$step)["Pregnancies:Age"], 3)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+<<hilo, echo=FALSE, cache=FALSE, message=FALSE, warning=FALSE>>=
+hilo <- function() {
+  if (mean(logistic.regression$val.acc) > mean(logistic.regression$acc)) {
+    return(sprintf("higher"))
+  } else {
+    return(sprintf("lower"))
+  } 
+}
+@
+
+To validate that the model is not overfitting, a 10-fold cross-validation is run using the same model architecture. The mean and standard deviation of the parameter estimates over the 10 folds is presented in Table \ref{tab:logistic_cv}. The mean values are nearly indentical as those obtained with the whole dataset, with very little variability. The mean validation accuracy (on unseen data, \Sexpr{num(mean(logistic.regression$val.acc), 3)} $\pm$ \Sexpr{num(sd(logistic.regression$val.acc), 3)}) is very slightly \Sexpr{hilo()} than the training accuracy (on the fitted data, \Sexpr{num(mean(logistic.regression$acc), 3)} $\pm$ \Sexpr{num(sd(logistic.regression$acc), 3)}), indicating little to no overfitting.
+
+\begin{table}[H]
+\centering
+\caption{Mean and standard deviation of the parameter estimates for a 10-fold cross-validation}
+\label{tab:logistic_cv}
+\begin{tabular}{lcc}
+\toprule
+\multicolumn{1}{c}{Coefficient} & Mean estimate                                                                      & Standard deviation                                                               \\
+\midrule
+$\beta_0$                       & \Sexpr{num(mean(logistic.regression$coefs$`(Intercept)`), 3)}                      & \Sexpr{num(sd(logistic.regression$coefs$`(Intercept)`), 3)}                      \\
+$\beta_\text{pregnancies}$      & \Sexpr{num(mean(logistic.regression$coefs$Pregnancies), 3)}                        & \Sexpr{num(sd(logistic.regression$coefs$Pregnancies), 3)}                        \\
+$\beta_\text{glucose}$          & \Sexpr{num(mean(logistic.regression$coefs$Glucose), 3)}                            & \Sexpr{num(sd(logistic.regression$coefs$Glucose), 3)}                            \\
+$\beta_\text{BMI}$              & \Sexpr{num(mean(logistic.regression$coefs$BMI), 3)}                                & \Sexpr{num(sd(logistic.regression$coefs$BMI), 3)}                                \\
+$\beta_\text{DPF}$              & \Sexpr{num(mean(logistic.regression$coefs$DiabetesPedigreeFunction), 3)}           & \Sexpr{num(sd(logistic.regression$coefs$DiabetesPedigreeFunction), 3)}           \\
+$\beta_\text{age}$              & \Sexpr{num(mean(logistic.regression$coefs$Age), 3)}                                & \Sexpr{num(sd(logistic.regression$coefs$Age), 3)}                                \\
+$\beta_\text{glucose-DPF}$      & \Sexpr{num(mean(logistic.regression$coefs$`Glucose:DiabetesPedigreeFunction`), 3)} & \Sexpr{num(sd(logistic.regression$coefs$`Glucose:DiabetesPedigreeFunction`), 3)} \\
+$\beta_\text{pregnancies-age}$  & \Sexpr{num(mean(logistic.regression$coefs$`Pregnancies:Age`), 3)}                  & \Sexpr{num(sd(logistic.regression$coefs$`Pregnancies:Age`), 3)}                  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion} \label{Discussion}
+The dataset explored in the current classification task is the Pima Indians Diabetes dataset which documents the diagnosis of diabetes in Pima Indian women. Logistic regression is used to model the standardized data, with the number of pregnancies, blood glucose concentration, blood pressure, tricep skin fold thickness, BMI, DPF and age as predictors. After fitting a baseline model including linear contributions of all of these features, stepwise selection yields a model that drops blood pressure and skin thickness as predictors, and introduces cross-interactions between glucose concentration and DPF, and between pregnancies and age.
+
+Since the diagnostic threshold for a positive was set as a glucose concentration of 200 mg/dL by \citet{smith1988using} when creating the dataset, it is not surprising that the predictor with the highest odds ratio is the glucose concentration at the initial examination of the subjects. This feature is by far the most important risk factor; we have to go to the lower bound of the confidence interval (\Sexpr{num(exp(get_conf_int(3,1)), 3)}) and to the upper bound for the following features (\Sexpr{num(exp(get_conf_int(2,2)), 3)} for pregnancies, \Sexpr{num(exp(get_conf_int(4,2)), 3)}) for BMI) to have comparable values. Having more pregnancies, a higher BMI and a higher DPF score all significantly increase the risk of receiving a positive diabetes diagnosis. Surprisingly, an combined increase in both glucose concentration and DPF results in a small but significant risk decrease. Being older increases the odds, while the combination of age and pregnancies decreases them, but the effect of these predictors is not statistically significant.
+
+There is little multicolinearity between the predictors as indicated by varianc inflation factors close to 1, with perhaps the exception of age and the number of pregnancies. These variables are somewhat correlated, which is expected as older women have had more time to have children. Since all VIF values smaller than \Sexpr{num(max(car::vif(logistic.regression$step)), 3)}, multicolinearity can be neglected.
+
+Finally, the select model is stable as it converges to similar parameter values even when fitted to a subset of all the data. It's predictive power is also virtually as good for new datapoints as for the ones used for the fitting procedure (\Sexpr{num(mean(logistic.regression$val.acc), 3)} $\pm$ \Sexpr{num(sd(logistic.regression$val.acc), 3)} validation accuracy and \Sexpr{num(mean(logistic.regression$acc), 3)} $\pm$ \Sexpr{num(sd(logistic.regression$acc), 3)} training accuracy over a 10-fold cross-validation), indicating little to no overfitting.
+
+\section{Conclusion} \label{Conclusion}
+Classification is a very common task in modern statistics and machine learning, with various approaches developped over the years to tackle this problem. Logistic regression on a set of features is one of the most basic of these techniques, but its simplicity and interpretability make it still relevant today. Logisitic regression was applied in this study to model the onset of diabetes in Pima Indian women. The best performing model was selected by a stepwse selection procedure, with the selected predictors being the number of pregnancies, blood glucose concentration, BMI, DPF and age as well as the combined effect of glucose and DPF, and pregnancies and age. Blood glucose concentration is by far the most important predictor. No major multicolinearity was observed, and the model has virtually the same predictive accuracy on new data compared to its accuracy on its training data.
+
+Further exploration of different modeling techniques such as tree-based classification, support vector machines, and neural networks, would be the next step. Given its simplicity and interpretability, logistic regression could be used as a proper baseline to compare the performance of these more complex methods.
+
+\clearpage
+\bibliographystyle{plainnat}
+\bibliography{bibliography}
+
+\clearpage
+\begin{appendices}
+\renewcommand{\thesection}{Appendix \Alph{section}}
+\renewcommand{\thesubsection}{\Alph{section}.\arabic{subsection}}
+
+\section{Diabetes Pedigree Function} \label{Diabetes Pedigree Function}
+The diabetes pedigree function proposed by \cite{smith1988using} is computed as follows:
+\begin{equation}
+  \text{DPF} = \dfrac{\sum_{d \in D} K_d (88 - {ADM}_d) + 20}{\sum_{n \in N} K_n ({ALC}_n - 15) + 50}
+  \label{eqn:diabetes_pedigree_function}
+\end{equation}
+where
+\begin{itemize}[nolistsep]
+  \item $D$ is the set of the subject's relatives who have a \emph{positive} diabetes diagnosis at the time of the initial examination.
+  \item $N$ is the set of the subject's relatives who have a \emph{negative} diabetes diagnosis at the time of the initial examination.
+  \item $K_x$ is the proportion of genes shared between relative $x$ and the subject. A parent or sibling's $K_x$ will be 0.5; a half-sibling, grand-parent, aunt, or uncle will have a $K_x$ of 0.25; a half-aunt, half-uncle, or first cousin will have a $K_x$ of 0.125.
+  \item ${ADM}_d$ is the age (in years) of relative $d$ at the time of their diagnosis.
+  \item ${ALC}_n$ is the age (in years) of relative $n$ at the time of their last examination.
+\end{itemize}
+The constants 88 and 14 are the maximum and minimum age at which the subject's relatives have been diagnosed with diabetes (with some rare exceptions). The constants 20 and 50 have been chosen, according to \citeauthor{smith1988using}, in order to (a) give a DPF value a little below average to subjects with no relatives, (b) limit distortions when young relatives (who are less likely to have a positive diagnosis) are added to the computation, and (c) rapidly increase the value when relatives receive a positive diagnosis.
+
+\end{appendices}
+
+\end{document}
